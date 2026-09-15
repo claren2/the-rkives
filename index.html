@@ -2,7 +2,12 @@
 <html>
 <head>
     <title>Photo Booth</title>
+
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             margin: 0;
             text-align: center;
@@ -11,16 +16,51 @@
             color: white;
         }
 
-        video {
+        /* Camera container */
+        #cameraContainer {
+            position: relative;
+            width: min(640px, 95vw);
+            aspect-ratio: 4 / 3;
+            margin: 10px auto;
+            overflow: hidden;
             border-radius: 10px;
-            margin-top: 2px;
-            filter: grayscale(100%) contrast(120%) sepia(20%) brightness(95%) blur(0.5px);
         }
 
-        canvas, #preview {
+        /* Camera */
+        #video {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
             border-radius: 10px;
-            margin-top: 20px;
-            /* no filter here! keeps colors */
+
+            /* This only affects what you see on screen */
+            filter:
+                grayscale(100%)
+                contrast(120%)
+                sepia(20%)
+                brightness(95%)
+                blur(0.5px);
+        }
+
+        /* Camera frame */
+        #frame {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        /* Final canvas preview */
+        #preview {
+            display: none;
+            width: min(350px, 90vw);
+            height: auto;
+            margin: 20px auto;
+            border: 2px solid white;
+            border-radius: 10px;
         }
 
         button {
@@ -33,193 +73,513 @@
             cursor: pointer;
         }
 
+        button:disabled {
+            opacity: 0.5;
+        }
+
         #flash {
             position: fixed;
-            top:0;
-            left:0;
-            width:100%;
-            height:100%;
-            background:white;
-            opacity:0;
-            pointer-events:none;
+            z-index: 100;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
         }
 
         #countdown {
+            z-index: 50;
             font-size: 60px;
-            position: absolute;
+            position: fixed;
             top: 40%;
-            left: 65%;
+            left: 50%;
             transform: translate(-50%, -50%);
-        }
-
-        #preview {
-        display: none;
-        border: 2px solid white;
-        width: 350px;
-        margin: 20px auto; /* this centers the image horizontally */
-        display: block;    /* ensures it's treated as a block element */
+            color: white;
+            text-shadow: 2px 2px 5px black;
         }
 
         #downloadBtn {
             display: none;
         }
+
+        #instructions {
+            max-width: 95vw;
+            height: auto;
+        }
+
+        /* Makes the page work better on phones */
+        @media (max-width: 600px) {
+            body {
+                overflow-x: hidden;
+            }
+
+            #instructions {
+                width: 90vw;
+                height: auto;
+            }
+
+            button {
+                margin: 15px auto;
+                display: block;
+            }
+        }
     </style>
 </head>
+
 <body>
 
-    <img src="photo_booth_logo.png" width="300">
-    
+    <img src="photo_booth_logo.png"
+         width="300"
+         style="max-width:90vw; height:auto;">
+
     <br>
 
-    <table>
+    <img id="instructions"
+         src="photo_booth_instructions.png"
+         width="360"
+         height="480">
 
-    <tr>
-        <img src="photo_booth_instructions.png" width="360" height="480">
-    </tr>
-    
-    <tr>
-    <div style="position:relative; display:inline-block;">
-        <video id="video" width="630" height="470" autoplay></video>
-        <img id="frame" src="camera_frame3.png" style="position:absolute; top:0; left:0; width:640px; pointer-events:none;">
+    <br>
+
+    <!-- CAMERA -->
+    <div id="cameraContainer">
+
+        <video
+            id="video"
+            autoplay
+            muted
+            playsinline>
+        </video>
+
+        <img
+            id="frame"
+            src="camera_frame3.png">
     </div>
-    </tr>
-
-    </table>
 
     <br>
-    <br>
 
-    <button onclick="startSession()">
-        <img src="photo_button.png" alt = "Button to take Pictures" width="175" height="70">
+    <button id="startBtn" onclick="startSession()">
+        <img
+            src="photo_button.png"
+            alt="Button to take Pictures"
+            width="175"
+            height="70">
     </button>
 
     <canvas id="canvas" style="display:none;"></canvas>
+
     <div id="flash"></div>
+
     <div id="countdown"></div>
+
     <img id="preview">
 
     <button id="downloadBtn" onclick="downloadStrip()">
-        <img src="download_button.png" alt="Download Button" width="175" height="70">
+        <img
+            src="download_button.png"
+            alt="Download Button"
+            width="175"
+            height="70">
     </button>
 
+
     <script>
-        // Elements
+
+        // ----------------------------------------
+        // ELEMENTS
+        // ----------------------------------------
+
         const video = document.getElementById("video");
         const canvas = document.getElementById("canvas");
         const ctx = canvas.getContext("2d");
+
         const flash = document.getElementById("flash");
         const countdownEl = document.getElementById("countdown");
         const preview = document.getElementById("preview");
         const downloadBtn = document.getElementById("downloadBtn");
+        const startBtn = document.getElementById("startBtn");
+        const frame = document.getElementById("frame");
 
-        // Custom film strip design
+
+        // ----------------------------------------
+        // FILM STRIP DESIGN
+        // ----------------------------------------
+
         const design = new Image();
         design.src = "film_strip_design2.png";
+
         let designLoaded = false;
-        design.onload = () => designLoaded = true;
 
-        // Show preview and center it
-        preview.src = canvas.toDataURL();
-        preview.style.display = "block"; // make it visible
-        preview.style.margin = "20px auto"; // center horizontally
+        design.onload = () => {
+            designLoaded = true;
+        };
 
-        // Turn on camera
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => video.srcObject = stream)
-            .catch(() => alert("Camera access denied."));
 
-        // Store photos
+        // ----------------------------------------
+        // CAMERA
+        // ----------------------------------------
+
+        async function startCamera() {
+
+            try {
+
+                const stream = await navigator.mediaDevices.getUserMedia({
+
+                    video: {
+                        facingMode: "user",
+
+                        // Ask the camera for a 4:3-ish image.
+                        // The browser may choose the closest supported mode.
+                        aspectRatio: {
+                            ideal: 4 / 3
+                        },
+
+                        width: {
+                            ideal: 1280
+                        },
+
+                        height: {
+                            ideal: 960
+                        }
+                    },
+
+                    audio: false
+                });
+
+                video.srcObject = stream;
+
+                await video.play();
+
+            } catch (error) {
+
+                console.error("Camera error:", error);
+
+                alert(
+                    "Unable to access the camera. " +
+                    "Please allow camera access and make sure the page is using HTTPS."
+                );
+            }
+        }
+
+
+        // Start camera when page loads
+        startCamera();
+
+
+        // ----------------------------------------
+        // PHOTO STORAGE
+        // ----------------------------------------
+
         let photos = [];
         let photoIndex = 0;
 
-        // Start the photo session
+
+        // ----------------------------------------
+        // START PHOTO SESSION
+        // ----------------------------------------
+
         function startSession() {
+
             photos = [];
             photoIndex = 0;
+
+            downloadBtn.style.display = "none";
+
+            startBtn.disabled = true;
+
             takePhoto();
         }
 
-        // Countdown before each photo
+
+        // ----------------------------------------
+        // COUNTDOWN
+        // ----------------------------------------
+
         function takePhoto() {
+
             let count = 3;
+
             countdownEl.textContent = count;
             countdownEl.style.display = "block";
 
             const timer = setInterval(() => {
+
                 count--;
+
                 if (count > 0) {
+
                     countdownEl.textContent = count;
+
                 } else {
+
                     clearInterval(timer);
+
                     countdownEl.style.display = "none";
+
                     capturePhoto();
                 }
+
             }, 1000);
         }
 
-        // Capture single photo
+
+        // ----------------------------------------
+        // CAPTURE PHOTO
+        // ----------------------------------------
+
         function capturePhoto() {
-            // Flash effect
+
+            // Flash
             flash.style.opacity = 1;
-            setTimeout(() => flash.style.opacity = 0, 150);
 
-            // Temporary canvas for this photo
-            let temp = document.createElement("canvas");
-            temp.width = 640;
-            temp.height = 480;
-            let tempCtx = temp.getContext("2d");
+            setTimeout(() => {
+                flash.style.opacity = 0;
+            }, 150);
 
-            // 1️⃣ Apply grayscale to the PHOTO only
-            tempCtx.filter = "grayscale(100%)";
-            tempCtx.drawImage(video, 0, 0, 640, 480);
 
-            // 2️⃣ TURN FILTER OFF
-            tempCtx.filter = "none";
+            // ------------------------------------
+            // IMPORTANT:
+            // Always create a true 4:3 photograph.
+            // This prevents phone cameras from
+            // being stretched/distorted.
+            // ------------------------------------
 
-            // 3️⃣ Draw the frame in full color
-            const frame = document.getElementById("frame");
-            tempCtx.drawImage(frame, 0, 0, 640, 480);
+            const PHOTO_WIDTH = 640;
+            const PHOTO_HEIGHT = 480;
 
-            photos.push(temp);
-            photoIndex++;
+            const temp = document.createElement("canvas");
 
-            if (photoIndex < 4) {
-                setTimeout(takePhoto, 1500); // next photo
-            } else {
-                createStripPreview(); // all 4 photos taken
-            }
-        }
+            temp.width = PHOTO_WIDTH;
+            temp.height = PHOTO_HEIGHT;
 
-        // Create final film strip preview
-        function createStripPreview() {
-            if (!designLoaded) {
-                alert("Design loading. Try again.");
+            const tempCtx = temp.getContext("2d");
+
+
+            // Actual camera dimensions
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+
+            if (!videoWidth || !videoHeight) {
+
+                console.error("Camera video has no dimensions yet.");
+
+                startBtn.disabled = false;
+
                 return;
             }
 
-            canvas.width = 700;
-            canvas.height = 2400;
-            ctx.drawImage(design, 0, 0, canvas.width, canvas.height);
 
-            const yPositions = [50, 550, 1050, 1550];
-            for (let i = 0; i < photos.length; i++) {
-                ctx.drawImage(photos[i], 30, yPositions[i], 640, 480);
+            // ------------------------------------
+            // CENTER CROP
+            //
+            // Instead of stretching the phone
+            // camera into 640x480, we crop the
+            // camera image to the correct 4:3 shape.
+            // ------------------------------------
+
+            const targetRatio = PHOTO_WIDTH / PHOTO_HEIGHT;
+            const videoRatio = videoWidth / videoHeight;
+
+            let sourceWidth;
+            let sourceHeight;
+            let sourceX;
+            let sourceY;
+
+            if (videoRatio > targetRatio) {
+
+                // Camera is wider than 4:3.
+                // Crop the sides.
+
+                sourceHeight = videoHeight;
+                sourceWidth = videoHeight * targetRatio;
+
+                sourceX = (videoWidth - sourceWidth) / 2;
+                sourceY = 0;
+
+            } else {
+
+                // Camera is taller/narrower than 4:3.
+                // Crop top and bottom.
+
+                sourceWidth = videoWidth;
+                sourceHeight = videoWidth / targetRatio;
+
+                sourceX = 0;
+                sourceY = (videoHeight - sourceHeight) / 2;
             }
 
-            // Show preview and download button
-            preview.src = canvas.toDataURL();
+
+            // ------------------------------------
+            // DRAW NORMAL PROPORTIONS
+            // ------------------------------------
+
+            tempCtx.drawImage(
+                video,
+
+                sourceX,
+                sourceY,
+                sourceWidth,
+                sourceHeight,
+
+                0,
+                0,
+                PHOTO_WIDTH,
+                PHOTO_HEIGHT
+            );
+
+
+            // ------------------------------------
+            // MAKE PHOTO BLACK & WHITE
+            //
+            // We DON'T use canvas.filter here.
+            // Instead we directly modify the pixels.
+            // This is much more reliable on phones.
+            // ------------------------------------
+
+            const imageData = tempCtx.getImageData(
+                0,
+                0,
+                PHOTO_WIDTH,
+                PHOTO_HEIGHT
+            );
+
+            const pixels = imageData.data;
+
+            for (let i = 0; i < pixels.length; i += 4) {
+
+                const red = pixels[i];
+                const green = pixels[i + 1];
+                const blue = pixels[i + 2];
+
+                // Standard luminance calculation
+                const gray =
+                    (0.299 * red) +
+                    (0.587 * green) +
+                    (0.114 * blue);
+
+                pixels[i] = gray;
+                pixels[i + 1] = gray;
+                pixels[i + 2] = gray;
+            }
+
+            tempCtx.putImageData(imageData, 0, 0);
+
+
+            // ------------------------------------
+            // DRAW COLORED FRAME
+            // ------------------------------------
+
+            tempCtx.drawImage(
+                frame,
+                0,
+                0,
+                PHOTO_WIDTH,
+                PHOTO_HEIGHT
+            );
+
+
+            // Save photo
+            photos.push(temp);
+
+            photoIndex++;
+
+
+            // ------------------------------------
+            // NEXT PHOTO
+            // ------------------------------------
+
+            if (photoIndex < 4) {
+
+                setTimeout(takePhoto, 1500);
+
+            } else {
+
+                createStripPreview();
+
+                startBtn.disabled = false;
+            }
+        }
+
+
+        // ----------------------------------------
+        // CREATE FILM STRIP
+        // ----------------------------------------
+
+        function createStripPreview() {
+
+            if (!designLoaded) {
+
+                alert("Design is still loading. Please try again.");
+
+                return;
+            }
+
+
+            // Final film strip
+            canvas.width = 700;
+            canvas.height = 2400;
+
+
+            // Draw background/design
+            ctx.drawImage(
+                design,
+                0,
+                0,
+                canvas.width,
+                canvas.height
+            );
+
+
+            // Photo positions
+            const yPositions = [
+                50,
+                550,
+                1050,
+                1550
+            ];
+
+
+            // Put photos onto strip
+            for (let i = 0; i < photos.length; i++) {
+
+                ctx.drawImage(
+                    photos[i],
+                    30,
+                    yPositions[i],
+                    640,
+                    480
+                );
+            }
+
+
+            // Show final image
+            preview.src = canvas.toDataURL("image/png");
+
             preview.style.display = "block";
+
             downloadBtn.style.display = "inline-block";
         }
 
-        // Download final film strip
+
+        // ----------------------------------------
+        // DOWNLOAD
+        // ----------------------------------------
+
         function downloadStrip() {
+
             const link = document.createElement("a");
-            link.href = canvas.toDataURL();
+
+            link.href = canvas.toDataURL("image/png");
+
             link.download = "film_strip.png";
+
             link.click();
         }
+
     </script>
 
 </body>
 </html>
+
